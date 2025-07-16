@@ -1,9 +1,7 @@
 library(devtools)
-
-
 ## Install and load serosim 
 library(serosim)
-
+library(serosolver)
 ## Load additional packages required 
 library(tidyverse)
 library(data.table)
@@ -13,7 +11,6 @@ library(reshape2)
 
 ## Specify the number of time steps in the simulation
 times <- seq(1,120,by=1)
-install.packages("patchwork")
 ## Generate the population demography tibble
 demography <- generate_pop_demography(N=100, times=times, prob_removal=0)
 #> Joining with `by = join_by(i)`
@@ -72,8 +69,6 @@ plot_subset_individuals_history(res$biomarker_states, res$immune_histories_long,
 ## Plot the serosurvey results (observed biomarker quantities)
 plot_obs_biomarkers_one_sample(res$observed_biomarker_states)
 
-
-devtools::install_github("seroanalytics/serosolver")
 library(serosolver)
 library(serosolver)
 library(plyr)
@@ -91,17 +86,55 @@ titre_dat <- data.frame(individual=c(rep(1,4),rep(2,4)),
 )
 knitr::kable(head(titre_dat))
 
-library(serosolver)
-par_tab 
-
+data(example_par_tab)
 
 # generate starting parameter values
-start_tab <- par_tab
+start_tab <- example_par_tab
 for(i in 1:nrow(start_tab)){
   if(start_tab[i,"fixed"] == 0){
     start_tab[i,"values"] <- runif(1,start_tab[i,"lower_start"], 
                                    start_tab[i,"upper_start"])
   }
 }
+
+
+##case study 1
+
+# Required to run serosolver
+devtools::install_github("seroanalytics/serosolver")
+library(serosolver)
+library(plyr)
+library(data.table)
+
+## Required for this analysis
+library(reshape2)
+library(foreach)
+library(doParallel)
+library(bayesplot)
+library(coda)
+library(ggplot2)
+library(viridis)
+library(ggpubr)
+
+# set up cluster
+set.seed(0)
+cl <- makeCluster(5)
+
+## Note that this vignette was generated on a Windows machine,
+## and the setup for parallelisation is different on a Linux or Mac:
+
+if(Sys.info()[["sysname"]]=="Darwin" | Sys.info()[["sysname"]]=="Linux"){
+  library(doMC)
+  library(doRNG)
+  registerDoMC(cores=5)
+}else{
+  registerDoParallel(cl)
+}
+
+
+
+
+
+
 
 
