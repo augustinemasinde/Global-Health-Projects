@@ -1,9 +1,7 @@
-install.packages("devtools")
 library(devtools)
 
 
 ## Install and load serosim 
-devtools::install_github("seroanalytics/serosim")
 library(serosim)
 
 ## Load additional packages required 
@@ -15,7 +13,7 @@ library(reshape2)
 
 ## Specify the number of time steps in the simulation
 times <- seq(1,120,by=1)
-
+install.packages("patchwork")
 ## Generate the population demography tibble
 demography <- generate_pop_demography(N=100, times=times, prob_removal=0)
 #> Joining with `by = join_by(i)`
@@ -74,5 +72,36 @@ plot_subset_individuals_history(res$biomarker_states, res$immune_histories_long,
 ## Plot the serosurvey results (observed biomarker quantities)
 plot_obs_biomarkers_one_sample(res$observed_biomarker_states)
 
+
+devtools::install_github("seroanalytics/serosolver")
+library(serosolver)
+library(serosolver)
+library(plyr)
+library(data.table)
+library(ggplot2)
+
+#data format
+titre_dat <- data.frame(individual=c(rep(1,4),rep(2,4)),
+                        samples=c(8039,8040,8044,8047,8039,8041,8045,8048),
+                        virus=c(rep(8036,8)),
+                        titre=c(0,0,7,7,0,5,6,5),
+                        run=c(rep(1,8)),
+                        DOB=c(rep(8036,8)),
+                        group=c(rep(1,8))
+)
+knitr::kable(head(titre_dat))
+
+library(serosolver)
+par_tab 
+
+
+# generate starting parameter values
+start_tab <- par_tab
+for(i in 1:nrow(start_tab)){
+  if(start_tab[i,"fixed"] == 0){
+    start_tab[i,"values"] <- runif(1,start_tab[i,"lower_start"], 
+                                   start_tab[i,"upper_start"])
+  }
+}
 
 
