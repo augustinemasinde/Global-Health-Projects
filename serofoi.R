@@ -7,7 +7,7 @@ chikdata <- read_excel("~/Downloads/chikungunya_data_Uganda.xlsx")
    rename(year="Year")
 
  # Define age breaks and labels
- breaks <- c(1, 12, 18, 50, 65, Inf)
+ breaks <- c(1, 12, 18, 50, 65, 134)
  labels <- c("1-11", "12-18", "18-49", "50-64", "65+")
  
  # Create age_cat and n_sample columns
@@ -19,7 +19,7 @@ chikdata <- read_excel("~/Downloads/chikungunya_data_Uganda.xlsx")
                         include.lowest = TRUE)) %>%
    group_by(age_cat) %>%
    mutate(n_sample = n()) %>%
-   ungroup() %>% select(age_cat, n_sample)
+   ungroup() %>% select(age_cat, n_sample) %>%  distinct()
  
  
 serosurvey_constant <- simulate_serosurvey(
@@ -27,6 +27,6 @@ serosurvey_constant <- simulate_serosurvey(
   foi,
   survey_features
 ) |>
-  mutate(survey_year = 2025)
+  mutate(survey_year = 2070)
  
   
