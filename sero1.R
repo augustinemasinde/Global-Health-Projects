@@ -207,12 +207,6 @@ ggplot(demography, aes(x = Gender, fill = Gender)) +
   theme(legend.position = "none")
 
 
-biomarker_map <- tibble::tibble(
-  exposure_id = "ifxn",
-  biomarker_id = "IgG"
-)
-reformat_biomarker_map(biomarker_map)
-
 
 
 
