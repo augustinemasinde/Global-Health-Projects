@@ -1,16 +1,4 @@
-######################
-## Author: KYLIE AINSLIE 25.10.2018 - ainslie.kylie@gmail.com
-## Note: OPEN WITH UTF-8 ENCODING
-## Log: Updated 15.11.2019 - jameshay218@gmail.com
-##      - Changed case study to estimate long and short term antibody boosting
-## Description: 
-##  This script fits the serosolver antibody kinetics model to the Hong Kong HI titre data
-##  First, we fit to unvaccinated people and then to vaccinated to see differences in antibody
-##  kinetics parameter estimates (if any) 
-##  This particular script uses a gibbs proposal step to resample infection histories
-##  which integrates out the annual force of infection parameters.
 library(serosolver)
-#devtools::load_all("E:/James/Documents/Fluscape/serosolver/")
 library(ggplot2)
 library(coda)
 library(plyr)
@@ -26,55 +14,130 @@ library(ggthemes)
 library(cowplot)
 library(grid)
 library(gridExtra)
-#library(doRNG)
-
-## Where to carry out analyses
-setwd("E:/James/Google Drive/Influenza/serosolver/methods_paper/PLOS Comp Biol/Results/case_study_1/")
+library(doRNG)
+library(serosim)
+library(tidyverse)
+library(readxl)
 set.seed(0)
 
 # Setup -------------------------------------------------------------------
 serosolver <- FALSE
 
 ## Filename prefix for all saved outputs
-filename <- "case_study_1_test"   # The general output filename
+filename <- "chikungunya_data_test"
 filenames <- paste0(filename, "_",1:5)
 
 ## We'll be parallelising a few chains
 cl <- makeCluster(detectCores(), type='PSOCK')
 registerDoParallel(cl)
-#registerDoMC(cores=5)
+registerDoMC(cores=5)
+stopCluster(cl)
+
+# Optional: check it's working
+foreach(i = 1:5) %dopar% { Sys.getpid() }
 
 
-# Read in serological data ------------------------------------------------
-## This is used to convert annual time resolution to quarters 
-## (buckets <- 12 would be monthly, buckets <- 1 would be annual
-buckets <- 4   
+chikdata <-read_excel("~/Desktop/my files/chikungunya_data_Uganda.xlsx")
 
-## Read in titre data (unvaccinated)
-input_dat_path_unvacc <- system.file("extdata", "HKdata_h1n1_unvac.csv", package = "serosolver")
-input_dat_unvacc <- read.csv(file = input_dat_path_unvacc,header = TRUE)
-indivs <- unique(input_dat_unvacc$individual) #all individuals
+set.seed(123)  # For reproducibility
 
-## Format data for serosolver: needs a column for group id (all just group 1 as same population) 
-## and column to index repeats for each indiv/virus/sample combination
-titre_dat_unvac <- input_dat_unvacc[input_dat_unvacc$individual %in% indivs,c("individual","virus","titre","samples","DOB")]
-titre_dat_unvac$individual <- match(titre_dat_unvac$individual, indivs)
-titre_dat_unvac$group <- c(rep(1,nrow(titre_dat_unvac)))
-titre_dat_unvac <- unique(titre_dat_unvac)
-titre_dat_unvac <- plyr::ddply(titre_dat_unvac,.(individual,virus,samples),function(x) cbind(x,"run"=1:nrow(x)))
+chikdata$titre <- NA_real_
 
-## Read in titre data (vaccinated)
-input_dat_path_vacc <- system.file("extdata", "HKdata_h1n1_vac.csv", package = "serosolver")
-input_dat_vacc <- read.csv(file = input_dat_path_vacc,header = TRUE)
+# Assign low titres to seronegative individuals
+chikdata$titre[chikdata$IgM_CHIK == "Negative"] <- runif(
+  sum(chikdata$IgM_CHIK == "Negative"), min = 0, max = 10
+)
 
-indivs_vacc <- unique(input_dat_vacc$individual) #all individuals
-# Subset data for indivs
-titre_dat_vacc <- input_dat_vacc[input_dat_vacc$individual %in% indivs_vacc,c("individual","virus","titre","samples","DOB")]
-titre_dat_vacc$individual <- match(titre_dat_vacc$individual, indivs_vacc)
-titre_dat_vacc$group <- c(rep(1,nrow(titre_dat_vacc)))
+# Assign higher titres to seropositive individuals
+chikdata$titre[chikdata$IgM_CHIK == "Positive"] <- rlnorm(
+  sum(chikdata$IgM_CHIK == "Positive"), meanlog = log(40), sdlog = 0.4
+)
 
-titre_dat_vacc <- unique(titre_dat_vacc)
-titre_dat_vacc <- plyr::ddply(titre_dat_vacc,.(individual,virus,samples),function(x) cbind(x,"run"=1:nrow(x)))
+chikdata<- chikdata %>%  select(UniqueKey,Gender, Age_Yrs, Year,IgM_CHIK, titre)
+
+
+generate_birthday_date <- function(age_years) {
+  month <- sample(1:12, 1)
+  day <- switch(month,
+                "1"=sample(1:31, 1),
+                "2"=sample(1:28, 1),
+                "3"=sample(1:31, 1),
+                "4"=sample(1:30, 1),
+                "5"=sample(1:31, 1),
+                "6"=sample(1:30, 1),
+                "7"=sample(1:31, 1),
+                "8"=sample(1:31, 1),
+                "9"=sample(1:30, 1),
+                "10"=sample(1:31, 1),
+                "11"=sample(1:30, 1),
+                "12"=sample(1:31, 1))
+  
+  birth_year <- year(Sys.Date()) - age_years
+  birth_date <- make_date(year = birth_year, month = month, day = day)
+  
+  return(birth_date)
+}
+generate_birthday_date_vec <- Vectorize(generate_birthday_date)
+chikdata$DOB <- as.Date(generate_birthday_date_vec(chikdata$Age_Yrs))
+
+chikdata$birth_year <- as.numeric(format(chikdata$DOB, "%Y"))
+
+chikdata$birth_year[chikdata$birth_year == "1891"] <- "1991"
+# Ensure DOB is a Date
+chikdata$DOB <- as.Date(chikdata$DOB)
+
+# Set reference date
+ref_date <- as.Date("1927-01-01")
+
+# Convert DOB to number of days since 1927
+chikdata$DOB<- as.numeric(chikdata$DOB - ref_date)
+
+
+
+###data cleaning
+chikdata$IgM_CHIK[chikdata$IgM_CHIK == "Nengative"] <- "Negative"
+
+# Recode "NA" string to actual NA
+chikdata$IgM_CHIK[chikdata$IgM_CHIK == "NA"] <- NA
+
+# Drop all real NA values
+chikdata <- chikdata[!is.na(chikdata$IgM_CHIK), ]
+
+
+# Recode gender values
+chikdata$Gender[chikdata$Gender == "2-Female"] <- "Female"
+chikdata$Gender[chikdata$Gender == "1-Male"] <- "Male"
+
+# Drop rows with NA in Gender
+chikdata <- chikdata[!is.na(chikdata$Gender), ]
+
+library(dplyr)
+chik_vacc <- chikdata %>% filter(IgM_CHIK == "Positive")
+chik_unvacc <- chikdata %>% filter(IgM_CHIK == "Negative")
+ 
+
+
+#unvaccinted individuals
+chik_unvacc <- chik_unvacc %>% select(UniqueKey,titre, DOB)
+chik_unvacc$virus<- c(rep(8037,nrow(chik_unvacc)))
+chik_unvacc$samples<- c(rep(1252,nrow(chik_unvacc)))
+chik_unvacc$run<- c(rep(1,nrow(chik_unvacc)))
+library(dplyr)
+chik_unvacc <- chik_unvacc %>% dplyr::rename(individual = UniqueKey)
+chik_unvacc$titre <- log2(chik_unvacc$titre)
+chik_unvacc <- chik_unvacc %>% select(individual,virus,titre, samples,DOB,run)
+
+#vaccinated individuals
+chik_vacc <- chik_vacc %>% select(UniqueKey,titre, DOB)
+chik_vacc$virus<- c(rep(8037,nrow(chik_vacc)))
+chik_vacc$samples<- c(rep(163,nrow(chik_vacc)))
+chik_vacc$run<- c(rep(1,nrow(chik_vacc)))
+chik_vacc$group<- c(rep(1,nrow(chik_vacc)))
+library(dplyr)
+chik_vacc <- chik_vacc %>% dplyr::rename(individual = UniqueKey)
+chik_vacc$titre <- log2(chik_vacc$titre)
+chik_vacc <- chik_vacc %>% select(individual,virus,titre, samples,DOB,group,run)
+
 
 # Setup input parameters --------------------------------------------------
 ## Read in parameter table and change alpha/beta if necessary
@@ -84,14 +147,16 @@ par_tab[par_tab$names %in% c("alpha","beta"),"values"] <- c(1/3,1/3)
 par_tab <- par_tab[par_tab$names != "phi",] 
 par_tab[par_tab$names %in% c("tau","sigma1","sigma2"),"fixed"] <- 1 # tau, and sigma are fixed
 par_tab[par_tab$names %in% c("tau","sigma1","sigma2"),"values"] <- 0 # set value of mu and tau to 0
-par_tab[par_tab$names == "MAX_TITRE","values"] <- max(titre_dat_unvac$titre) # set max titre to 9
+par_tab[par_tab$names == "MAX_TITRE","values"] <- max(chik_unvacc$titre) # set max titre to 9
 
 ## Do not need antigenic map, as antigenically stable virus. So just use a 
 ## vector of strain isolation times instead
-strain_isolation_times <- seq(2009*buckets+1, 2012*buckets, by=1)
+strain_isolation_times <- seq(2019*buckets+1, 2024*buckets, by=1)
+
+
 
 # unique rows for each individual
-unique_indiv <- titre_dat_unvac[!duplicated(titre_dat_unvac$individual),]
+unique_indiv <- chik_unvacc[!duplicated(chik_unvacc$individual),]
 age_mask <- create_age_mask(unique_indiv$DOB, strain_isolation_times)
 mcmc_pars <- c("iterations"=2000000,"target_acceptance_rate_theta"=0.44,"target_acceptance_rate_inf_hist"=0.44,"adaptive_frequency"=1000,"thin"=10,"adaptive_iterations"=500000, 
                "save_block"=1000, "thin_inf_hist"=100,"proposal_inf_hist_indiv_prop"=1,"proposal_ratio"=2, "burnin"=0, "proposal_inf_hist_time_prop"=0.5, 
@@ -123,17 +188,17 @@ if(serosolver) {
                                          start_tab[i,"upper_start"])
         }
       }
-      start_inf <- setup_infection_histories_titre(titre_dat_unvac, 
+      start_inf <- setup_infection_histories_titre(chik_unvacc, 
                                                    strain_isolation_times, 
                                                    space=3,titre_cutoff=4)
       f <- create_posterior_func(par_tab = start_tab,
-                                 titre_dat = titre_dat_unvac,
+                                 titre_dat = chik_unvacc,
                                  strain_isolation_times = strain_isolation_times,
                                  version = prior_version) # function in posteriors.R
       start_prob <- sum(f(start_tab$values, start_inf)[[1]])
     }
     res_unvac <- serosolver(par_tab = start_tab, 
-                            titre_dat = titre_dat_unvac,
+                            titre_dat = chik_unvacc,
                             antigenic_map = NULL,
                             strain_isolation_times = strain_isolation_times,
                             start_inf_hist=start_inf, 
@@ -163,17 +228,17 @@ if(serosolver) {
                                          start_tab[i,"upper_start"])
         }
       }
-      start_inf <- setup_infection_histories_titre(titre_dat_vacc, 
+      start_inf <- setup_infection_histories_titre(chik_vacc, 
                                                    strain_isolation_times, 
                                                    space=3,titre_cutoff=4)
       f <- create_posterior_func(par_tab = start_tab,
-                                 titre_dat = titre_dat_vacc,
+                                 titre_dat = chik_vacc,
                                  strain_isolation_times = strain_isolation_times,
                                  version = prior_version) # function in posteriors.R
       start_prob <- sum(f(start_tab$values, start_inf)[[1]])
     }
     res_vac <- serosolver(par_tab = start_tab, 
-                          titre_dat = titre_dat_vacc,
+                          titre_dat = chik_vacc,
                           antigenic_map = NULL,
                           strain_isolation_times = strain_isolation_times,
                           start_inf_hist=start_inf, 
@@ -186,12 +251,13 @@ if(serosolver) {
 }
 
 
+
 # Post-processing ---------------------------------------------------------
 ## Read in the MCMC chains automatically
 all_chains <- load_mcmc_chains(location="chains_unvac",thin=50,burnin=500000,
-                               par_tab=par_tab,unfixed=FALSE,convert_mcmc=TRUE)
+                               par_tab=par_tab,convert_mcmc=TRUE)
 all_chains_vac <- load_mcmc_chains(location="chains_vac",thin=50,burnin=500000,
-                                   par_tab=par_tab,unfixed=FALSE,convert_mcmc=TRUE)
+                                   par_tab=par_tab,convert_mcmc=TRUE)
 
 
 ## Unvaccinated data chains
@@ -235,7 +301,7 @@ myresults
 
 ## Combine inferred infection histories with meta data
 inf_chain <- all_chains$inf_chain
-is <- unique(titre_dat_unvac$individual)
+is <- unique(chik_unvacc$individual)
 js <- unique(inf_chain$j)
 samp_nos <- unique(inf_chain$samp_no)
 chain_nos <- unique(inf_chain$chain_no)
@@ -271,9 +337,9 @@ age_dist <- ggplot(n_inf_chain_age) +
 
 # Figure plots ------------------------------------------------------------
 ## Plot MCMC trace on attack rates
-n_alive <- get_n_alive_group(titre_dat_unvac, seq_along(strain_isolation_times),melt_dat=TRUE)
+n_alive <- get_n_alive_group(chik_unvacc, seq_along(strain_isolation_times),melt_dat=TRUE)
 inf_chain <- all_chains$inf_chain
-indivs <-unique(titre_dat_unvac[titre_dat_unvac$samples %in% strain_isolation_times[length(strain_isolation_times)],"individual"])
+indivs <-unique(chik_unvacc[chik_unvacc$samples %in% strain_isolation_times[length(strain_isolation_times)],"individual"])
 #pdf(paste0("plots/",filename,"_attack_rate_trace.pdf"))
 plot_infection_history_chains_time(inf_chain,0,NULL,n_alive=n_alive,pad_chain=FALSE)[[1]]
 #dev.off()
@@ -682,5 +748,7 @@ dev.off()
 cairo_pdf("Fig4.pdf",width=7.5,height=5.5)
 overall_p
 dev.off()
+
+
 
 

@@ -23,3 +23,4 @@ table(fct_explicit_na(linelist$gender), fct_explicit_na(linelist$outcome)) %>%
   as.data.frame.matrix() %>% 
   tibble::rownames_to_column(var = "Age Category") %>% 
   flextable::flextable()
+

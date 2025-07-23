@@ -1,6 +1,4 @@
 library(serosim)
-
-## Load additional packages required 
 library(tidyverse)
 library(data.table)
 library(ggplot2)
@@ -9,7 +7,7 @@ library(reshape2)
 
 ##import the data
 library(readxl)
-chikdata <- read_excel("~/Downloads/chikungunya_data_Uganda.xlsx")
+chikdata <- read_excel("~/Desktop/my files/chikungunya_data_Uganda.xlsx")
 
 
 
@@ -205,6 +203,149 @@ ggplot(demography, aes(x = Gender, fill = Gender)) +
   geom_bar() +
   labs(title = "Gender Distribution", y = "Count") +
   theme(legend.position = "none")
+
+
+
+
+#catalytic models-constant
+library(serofoi)
+data("chagas2012")
+serosurvey<- chagas2012
+
+
+
+# how the disease circulates
+foi_df <- data.frame(
+  year = seq(2000, 2049, 1),
+  foi = rep(0.02, 50)
+)
+
+# specify 5-year age bins for observations
+survey_features <- data.frame(
+  age_min = seq(1, 50, 5),
+  age_max = seq(5, 50, 5),
+  n_sample = rep(25, 10)
+)
+
+serosurvey_constant <- simulate_serosurvey(
+  "time",
+  foi_df,
+  survey_features
+) |>
+  mutate(survey_year = 2050)
+
+seromodel_constant <- fit_seromodel(
+  serosurvey = serosurvey_constant,
+  model_type = "constant",
+  iter = 800
+)
+plot_constant<-plot_seromodel(
+  seromodel_constant,
+  serosurvey = serosurvey_constant,
+  foi_df = foi_df,
+  size_text = 6
+)
+
+
+#time varying models- slow time varying
+
+foi_df <- data.frame(
+  year = seq(2000, 2049, 1),
+  foi = c(
+    rep(0.2, 25),
+    rep(0.1, 10),
+    rep(0.00001, 15)
+  )
+)
+
+survey_features <- data.frame(
+  age_min = seq(1, 50, 5),
+  age_max = seq(5, 50, 5),
+  n_sample = rep(25, 10)
+)
+
+serosurvey_sw_dec <- simulate_serosurvey(
+  "time",
+  foi_df,
+  survey_features
+) |>
+  mutate(survey_year = 2050)
+
+
+foi_index <- data.frame(
+  year = seq(2000, 2049),
+  foi_index = rep(c(1, 2, 3), c(25, 10, 15))
+)
+seromodel_time_normal <- fit_seromodel(
+  serosurvey = serosurvey_sw_dec,
+  model_type = "time",
+  foi_index = foi_index,
+  iter = 1500
+)
+plot_time_normal<-plot_seromodel(
+  seromodel_time_normal,
+  serosurvey = serosurvey_sw_dec,
+  foi_df = foi_df,
+  size_text = 6
+)
+
+#time varying models-fast time
+
+foi_df <- data.frame(
+  year = seq(2000, 2049, 1),
+  foi = c(
+    rep(0, 30),
+    rep(0.7, 3),
+    rep(0, 17)
+  )
+)
+
+survey_features <- data.frame(
+  age_min = seq(1, 50, 5),
+  age_max = seq(5, 50, 5),
+  n_sample = rep(25, 10)
+)
+
+serosurvey_large_epi <- simulate_serosurvey(
+  survey_features = survey_features,
+  foi_df,
+  model = "time"
+) |>
+  mutate(survey_year = 2050)
+
+foi_index <- data.frame(
+  year = seq(2000, 2049),
+  foi_index = rep(c(1, 2, 3), c(30, 3, 17))
+)
+seromodel_log_time_normal <- fit_seromodel(
+  serosurvey = serosurvey_large_epi,
+  model_type = "time",
+  is_log_foi = TRUE,
+  foi_index = foi_index,
+  iter = 2000
+)
+
+plot_log_time_normal <- plot_seromodel(
+  seromodel_log_time_normal,
+  serosurvey = serosurvey_large_epi,
+  foi_df = foi_df,
+  size_text = 5,
+  foi_max = 0.7
+)
+plot(plot_log_time_normal)
+
+
+#model comparison
+cowplot::plot_grid(
+  plot_constant, plot_time_normal, plot_log_time_normal,
+  nrow = 1, ncol = 3, labels = "AUTO"
+)
+
+
+
+
+
+
 
 
 
