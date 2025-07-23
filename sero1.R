@@ -27,7 +27,6 @@ chikdata$titre[chikdata$IgM_CHIK == "Positive"] <- rlnorm(
 
 chikdata<- chikdata %>%  select(UniqueKey,Gender, Age_Yrs, Year,IgM_CHIK, titre)
 
-
 ###data cleaning
 chikdata$IgM_CHIK[chikdata$IgM_CHIK == "Nengative"] <- "Negative"
 
@@ -239,7 +238,7 @@ seromodel_constant <- fit_seromodel(
   model_type = "constant",
   iter = 800
 )
-plot_constant<-plot_seromodel(
+plot_seromodel(
   seromodel_constant,
   serosurvey = serosurvey_constant,
   foi_df = foi_df,
